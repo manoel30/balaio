@@ -7,69 +7,102 @@ from datetime import datetime
 # Configuração da página do Streamlit
 st.set_page_config(page_title="Controle - Balaio Escolar", layout="wide")
 
-# Função atualizada e segura para o ambiente da Render
+# Função de conexão segura (lendo as variáveis de ambiente da Render)
 def init_connection():
-    # Se você colocou a "External Database URL" da Render, usamos ela direto
     if "DATABASE_URL" in os.environ:
         return psycopg2.connect(os.environ["DATABASE_URL"])
-    
-    # Caso contrário, busca os campos individuais configurados na Render
     return psycopg2.connect(
-        host=os.getenv("DB_HOST", "dpg-d8b35b4m0tmc73d5ovog-a.virginia-postgres.render.com"),
-        database=os.getenv("DB_NAME", "balaio"),
-        user=os.getenv("DB_USER", "banco_gestao_mh_user"),
-        password=os.getenv("DB_PASSWORD", "7nDZqiN920jZKUiyssC5O3JtG9azi0aM"),
+        host=os.getenv("DB_HOST", "localhost"),
+        database=os.getenv("DB_NAME", "seu_banco"),
+        user=os.getenv("DB_USER", "seu_usuario"),
+        password=os.getenv("DB_PASSWORD", "sua_senha"),
         port=os.getenv("DB_PORT", "5432")
     )
 
 conn = init_connection()
-# (O restante do código do app.py continua exatamente igual)
 
-# Título do Aplicativo
 st.title("🍇 Gestão de Vendas - Balaio Escolar")
 
-# Navegação por Abas (Abas solicitadas)
-aba1, aba2, aba3 = st.tabs(["📋 Cadastro de Assinantes", "💰 Controle Financeiro", "📊 Relatórios & Inadimplência"])
+# Quatro abas agora, incluindo a confirmação do bilhete
+aba1, aba2, aba3, aba4 = st.tabs([
+    "📋 Cadastro de Compradores", 
+    "🎟️ Confirmar Preenchimento de Bilhete",
+    "💰 Controle Financeiro", 
+    "📊 Relatórios & Inadimplência"
+])
 
-# --- ABA 1: CADASTRO DE ASSINANTES ---
+# --- ABA 1: CADASTRO SIMPLIFICADO ---
 with aba1:
-    st.header("Novo Cadastro de Assinatura")
+    st.header("Novo Cadastro de Venda")
     with st.form("cadastro_cliente"):
-        nome_resp = st.text_input("Nome do Responsável")
-        nome_aluno = st.text_input("Nome do Aluno")
-        telefone = st.text_input("Telefone de Contato")
-        plano = st.selectbox("Plano Assinado", ["Mensal", "Semanal", "Diário"])
+        nome_resp = st.text_input("Nome do Comprador / Responsável")
         valor = st.number_input("Valor Combinado (R$)", min_value=0.0, step=10.0)
         
-        submit = st.form_submit_button("Salvar Cadastro")
+        submit = st.form_submit_button("Salvar Venda")
         
         if submit and nome_resp and valor > 0:
             cursor = conn.cursor()
-            # Insere o cliente
+            # Insere o comprador
             cursor.execute(
-                "INSERT INTO clientes (nome_responsavel, nome_aluno, telefone, plano_assinado, valor_combinado) VALUES (%s, %s, %s, %s, %s) RETURNING id;",
-                (nome_resp, nome_aluno, telefone, plano, valor)
+                "INSERT INTO clientes (nome_responsavel, valor_combinado) VALUES (%s, %s) RETURNING id;",
+                (nome_resp, valor)
             )
             cliente_id = cursor.fetchone()[0]
             
-            # Gera automaticamente a primeira cobrança para o mês atual
+            # Gera a cobrança inicial associada (Inicia com bilhete 'Não' preenchido)
             hoje = datetime.today().date()
             cursor.execute(
-                "INSERT INTO financeiro (cliente_id, data_competencia, valor_cobrado, status_pagamento) VALUES (%s, %s, %s, 'Pendente');",
+                "INSERT INTO financeiro (cliente_id, data_competencia, valor_cobrado, status_pagamento, bilhete_preenchido) VALUES (%s, %s, %s, 'Pendente', 'Não');",
                 (cliente_id, hoje, valor)
             )
             
             conn.commit()
             cursor.close()
-            st.success(f"Assinatura de {nome_resp} cadastrada com sucesso e cobrança gerada!")
+            st.success(f"Venda para {nome_resp} cadastrada com sucesso!")
+            st.rerun()
 
-# --- ABA 2: CONTROLE FINANCEIRO (RECEBIMENTOS) ---
+# --- ABA 2: CONFIRMAR PREENCHIMENTO DO BILHETE (NOVA MUDANÇA) ---
 with aba2:
+    st.header("Controle de Bilhetes do Comprador")
+    st.subheader("Marcar bilhetes que já foram preenchidos e entregues")
+    
+    # Busca apenas quem ainda NÃO preencheu o bilhete
+    query_bilhetes_pendentes = """
+        SELECT f.id, c.nome_responsavel, f.valor_cobrado, f.status_pagamento
+        FROM financeiro f
+        JOIN clientes c ON f.cliente_id = c.id
+        WHERE f.bilhete_preenchido = 'Não';
+    """
+    df_bilhetes = pd.read_sql(query_bilhetes_pendentes, conn)
+    
+    if not df_bilhetes.empty:
+        # Cria uma lista de seleção para marcar como preenchido
+        lista_opcoes = {f"{row['nome_responsavel']} - Valor: R${row['valor_cobrado']} ({row['status_pagamento']})": row['id'] for _, row in df_bilhetes.iterrows()}
+        
+        selecionado_bilhete = st.selectbox("Selecione o comprador que teve o bilhete preenchido:", list(lista_opcoes.keys()))
+        id_fin_bilhete = lista_opcoes[selecionado_bilhete]
+        
+        if st.button("Confirmar Bilhete como PREENCHIDO ✅"):
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE financeiro SET bilhete_preenchido = 'Sim' WHERE id = %s;",
+                (id_fin_bilhete,)
+            )
+            conn.commit()
+            cursor.close()
+            st.success("Bilhete atualizado com sucesso!")
+            st.rerun()
+    else:
+        st.success("🎉 Todos os bilhetes vendidos já foram preenchidos!")
+
+# --- ABA 3: CONTROLE FINANCEIRO (RECEBIMENTOS) ---
+with aba2: # Corrigido para a lógica correta da aba de pagamentos
+    pass 
+with aba3:
     st.header("Lançar Recebimentos")
     
-    # Buscar cobranças pendentes ou parciais para dar baixa
     query_pendentes = """
-        SELECT f.id, c.nome_responsavel, c.nome_aluno, f.valor_cobrado, f.valor_pago, f.status_pagamento 
+        SELECT f.id, c.nome_responsavel, f.valor_cobrado, f.valor_pago, f.status_pagamento 
         FROM financeiro f 
         JOIN clientes c ON f.cliente_id = c.id
         WHERE f.status_pagamento IN ('Pendente', 'Parcial');
@@ -78,19 +111,17 @@ with aba2:
     
     if not df_pendentes.empty:
         st.subheader("Cobranças em Aberto")
-        # Criar uma lista para seleção no formulário de baixa
-        opcoes = {f"{row['nome_responsavel']} ({row['nome_aluno']}) - Deve: R${row['valor_cobrado'] - row['valor_pago']}": row['id'] for _, row in df_pendentes.iterrows()}
+        opcoes = {f"{row['nome_responsavel']} - Deve: R${row['valor_cobrado'] - row['valor_pago']}": row['id'] for _, row in df_pendentes.iterrows()}
         
-        selecionado = st.selectbox("Selecione o Cliente para dar Baixa", list(opcoes.keys()))
+        selecionado = st.selectbox("Selecione o Cliente para dar Baixa no Pagamento", list(opcoes.keys()))
         id_financeiro = opcoes[selecionado]
         
-        # Obter dados da cobrança selecionada
         dados_cobranca = df_pendentes[df_pendentes['id'] == id_financeiro].iloc[0]
         saldo_devedor = float(dados_cobranca['valor_cobrado'] - dados_cobranca['valor_pago'])
         
         valor_pagamento = st.number_input("Valor Pago (R$)", min_value=0.0, max_value=saldo_devedor, value=saldo_devedor, step=5.0)
         
-        if st.button("Confirmar Recebimento"):
+        if st.button("Confirmar Recebimento 💰"):
             cursor = conn.cursor()
             novo_valor_pago = float(dados_cobranca['valor_pago']) + valor_pagamento
             novo_status = "Pago" if novo_valor_pago >= float(dados_cobranca['valor_cobrado']) else "Parcial"
@@ -104,13 +135,12 @@ with aba2:
             st.success("Pagamento registrado com sucesso!")
             st.rerun()
     else:
-        st.info("Não existem cobranças pendentes no momento.")
+        st.info("Não existem recebimentos pendentes.")
 
-# --- ABA 3: RELATÓRIOS (TOTAL VENDIDO E FILTROS DE DEVEDORES) ---
-with aba3:
+# --- ABA 4: RELATÓRIOS & DEVEDORES (SIMPLIFICADO) ---
+with aba4:
     st.header("Painel de Resultados Financeiros")
     
-    # 1. Indicador de Total Vendido (Faturado)
     cursor = conn.cursor()
     cursor.execute("SELECT SUM(valor_cobrado) FROM financeiro;")
     total_vendido = cursor.fetchone()[0] or 0.0
@@ -122,38 +152,31 @@ with aba3:
     total_devido = cursor.fetchone()[0] or 0.0
     cursor.close()
     
-    # Exibição de métricas em colunas
     col1, col2, col3 = st.columns(3)
-    col1.metric("Total Vendido (Faturamento)", f"R$ {total_vendido:,.2f}")
-    col2.metric("Total Recebido em Caixa", f"R$ {total_recebido:,.2f}")
-    col3.metric("Total a Receber (Inadimplência)", f"R$ {total_devido:,.2f}", delta=f"-R$ {total_devido:,.2f}", delta_color="inverse")
+    col1.metric("Total Vendido", f"R$ {total_vendido:,.2f}")
+    col2.metric("Total Recebido (Caixa)", f"R$ {total_recebido:,.2f}")
+    col3.metric("Total a Receber (Devendo)", f"R$ {total_devido:,.2f}", delta=f"-R$ {total_devido:,.2f}", delta_color="inverse")
     
     st.divider()
     
-    # 2. Filtro de quem está devendo
-    st.subheader("⚠️ Filtro de Clientes com Saldos Pendentes")
+    st.subheader("⚠️ Lista de Compradores com Saldo Devedor")
     
     query_devedores = """
-        SELECT c.nome_responsavel AS "Responsável", c.nome_aluno AS "Aluno", c.telefone AS "Telefone",
-               f.data_competencia AS "Mês Referência", f.valor_cobrado AS "Valor Total", 
-               f.valor_pago AS "Total Pago", (f.valor_cobrado - f.valor_pago) AS "Valor Devido"
+        SELECT c.nome_responsavel AS "Comprador", f.valor_cobrado AS "Valor Total", 
+               f.valor_pago AS "Total Pago", (f.valor_cobrado - f.valor_pago) AS "Valor Devido",
+               f.bilhete_preenchido AS "Bilhete Entregue?"
         FROM financeiro f
         JOIN clientes c ON f.cliente_id = c.id
         WHERE f.status_pagamento IN ('Pendente', 'Parcial')
-        ORDER BY f.data_competencia ASC;
+        ORDER BY c.nome_responsavel ASC;
     """
-    
     df_devedores = pd.read_sql(query_devedores, conn)
     
     if not df_devedores.empty:
-        # Permite pesquisar um devedor específico na tabela
-        busca = st.text_input("Filtrar devedor por nome:")
+        busca = st.text_input("Filtrar comprador por nome:")
         if busca:
-            df_devedores = df_devedores[
-                df_devedores['Responsável'].str.contains(busca, case=False) | 
-                df_devedores['Aluno'].str.contains(busca, case=False)
-            ]
+            df_devedores = df_devedores[df_devedores['Comprador'].str.contains(busca, case=False)]
         
         st.dataframe(df_devedores, use_container_width=True)
     else:
-        st.success("Excelente! Todos os clientes estão em dia.")
+        st.success("Tudo pago! Não há devedores no momento.")
