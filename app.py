@@ -13,10 +13,10 @@ def init_connection():
     if "DATABASE_URL" in os.environ:
         return psycopg2.connect(os.environ["DATABASE_URL"])
     return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        database=os.getenv("DB_NAME", "seu_banco"),
-        user=os.getenv("DB_USER", "seu_usuario"),
-        password=os.getenv("DB_PASSWORD", "sua_senha"),
+        host=os.getenv("DB_HOST", "dpg-d8b35b4m0tmc73d5ovog-a.virginia-postgres.render.com"),
+        database=os.getenv("DB_NAME", "balaio"),
+        user=os.getenv("DB_USER", "banco_gestao_mh_user"),
+        password=os.getenv("DB_PASSWORD", "7nDZqiN920jZKUiyssC5O3JtG9azi0aM"),
         port=os.getenv("DB_PORT", "5432")
     )
 
