@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import psycopg2
 import pandas as pd
@@ -6,17 +7,23 @@ from datetime import datetime
 # Configuração da página do Streamlit
 st.set_page_config(page_title="Controle - Balaio Escolar", layout="wide")
 
-# Função para conectar ao banco de dados PostgreSQL
+# Função atualizada e segura para o ambiente da Render
 def init_connection():
+    # Se você colocou a "External Database URL" da Render, usamos ela direto
+    if "DATABASE_URL" in os.environ:
+        return psycopg2.connect(os.environ["DATABASE_URL"])
+    
+    # Caso contrário, busca os campos individuais configurados na Render
     return psycopg2.connect(
-        host="srv-d8h24c48aovs73el4bgg",
-        database="balaio",
-        user="banco_gestao_mh_user",
-        password="7nDZqiN920jZKUiyssC5O3JtG9azi0aM",
-        port="5432"
+        host=os.getenv("DB_HOST", "dpg-d8b35b4m0tmc73d5ovog-a.virginia-postgres.render.com"),
+        database=os.getenv("DB_NAME", "balaio"),
+        user=os.getenv("DB_USER", "banco_gestao_mh_user"),
+        password=os.getenv("DB_PASSWORD", "7nDZqiN920jZKUiyssC5O3JtG9azi0aM"),
+        port=os.getenv("DB_PORT", "5432")
     )
 
 conn = init_connection()
+# (O restante do código do app.py continua exatamente igual)
 
 # Título do Aplicativo
 st.title("🍇 Gestão de Vendas - Balaio Escolar")
