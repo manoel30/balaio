@@ -9,10 +9,10 @@ st.set_page_config(page_title="Controle - Balaio Escolar", layout="wide")
 # Função para conectar ao banco de dados PostgreSQL
 def init_connection():
     return psycopg2.connect(
-        host="localhost",
+        host="srv-d8h24c48aovs73el4bgg",
         database="balaio",
-        user="postgres",
-        password="1234",
+        user="banco_gestao_mh_user",
+        password="7nDZqiN920jZKUiyssC5O3JtG9azi0aM",
         port="5432"
     )
 
