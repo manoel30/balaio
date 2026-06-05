@@ -26,10 +26,11 @@ conn = init_connection()
 st.title("🍇 Gestão de Vendas - Balaio Escolar")
 
 # 4. CRIAÇÃO DAS ABAS DE NAVEGAÇÃO
-aba1, aba2, aba3, aba4 = st.tabs([
+aba1, aba2, aba3, aba4, aba5 = st.tabs([
     "📋 Cadastro de Compradores", 
     "🎟️ Confirmar Entrega de Bilhete",
     "💰 Controle Financeiro", 
+    "⚙️ Gerenciar Compradores",
     "📊 Painel & Relatório PDF"
 ])
 
@@ -97,7 +98,7 @@ with aba2:
             )
             conn.commit()
             cursor.close()
-            st.success("Status do bilhete atualizado com sucesso!")
+            st.success("Status do bilhete updated com sucesso!")
             st.rerun()
     else:
         st.success("🎉 Todos os bilhetes físicos já foram preenchidos e entregues!")
@@ -144,8 +145,83 @@ with aba3:
     else:
         st.info("Não existem recebimentos pendentes no sistema.")
 
-# --- ABA 4: PAINEL ANALÍTICO & RELATÓRIO EM PDF ---
+# --- ABA 4: GERENCIAR COMPRADORES (EDITAR E DELETAR) ---
 with aba4:
+    st.header("Gerenciamento de Compradores")
+    st.subheader("Modificar dados ou excluir cadastros do sistema")
+
+    # Busca a lista completa de compradores atualizada
+    query_gerenciamento = "SELECT id, nome_responsavel, valor_combinado FROM clientes ORDER BY nome_responsavel ASC;"
+    df_gerenciar = pd.read_sql(query_gerenciamento, conn)
+
+    if not df_gerenciar.empty:
+        opcoes_gerenciar = {f"{row['nome_responsavel']} (Valor Atual: R$ {row['valor_combinado']})": row['id'] for _, row in df_gerenciar.iterrows()}
+        comprador_selecionado = st.selectbox("Selecione o comprador que deseja modificar:", list(opcoes_gerenciar.keys()))
+        id_comprador = opcoes_gerenciar[comprador_selecionado]
+
+        # Extrai os dados atuais do comprador selecionado para preencher o formulário automaticamente
+        dados_atuais = df_gerenciar[df_gerenciar['id'] == id_comprador].iloc[0]
+
+        # Layout em duas colunas separando a Edição da Exclusão
+        col_edit, col_del = st.columns(2)
+
+        with col_edit:
+            st.markdown("### ✏️ Editar Dados")
+            with st.form("form_editar"):
+                novo_nome = st.text_input("Alterar Nome", value=dados_atuais['nome_responsavel'])
+                novo_valor = st.number_input("Alterar Valor Combinado (R$)", min_value=0.0, step=10.0, value=float(dados_atuais['valor_combinado']))
+                btn_salvar = st.form_submit_button("Salvar Alterações")
+
+                if btn_salvar:
+                    if not novo_nome:
+                        st.error("O campo nome não pode ficar vazio.")
+                    elif novo_valor <= 0:
+                        st.error("O valor deve ser maior que zero.")
+                    else:
+                        cursor = conn.cursor()
+                        # Atualiza a tabela clientes
+                        cursor.execute(
+                            "UPDATE clientes SET nome_responsavel = %s, valor_combinado = %s WHERE id = %s;",
+                            (novo_nome, novo_valor, id_comprador)
+                        )
+                        # Sincroniza a tabela financeira com o novo valor cobrado e ajusta o status caso necessário
+                        cursor.execute(
+                            """
+                            UPDATE financeiro 
+                            SET valor_cobrado = %s,
+                                status_pagamento = CASE WHEN valor_pago >= %s THEN 'Pago' ELSE 'Pendente' END
+                            WHERE cliente_id = %s;
+                            """,
+                            (novo_valor, novo_valor, id_comprador)
+                        )
+                        conn.commit()
+                        cursor.close()
+                        st.success("Dados alterados com sucesso!")
+                        st.rerun()
+
+        with col_del:
+            st.markdown("### 🗑️ Excluir Registro")
+            st.warning(f"Atenção: A exclusão de '{dados_atuais['nome_responsavel']}' removerá permanentemente o comprador e todo o seu histórico financeiro vinculados.")
+            
+            # Caixa de confirmação de segurança (Checkbox)
+            confirmar_exclusao = st.checkbox("Confirmo que desejo deletar este comprador permanentemente.")
+            
+            if st.button("Excluir Cadastro Definitivamente ❌", type="primary"):
+                if confirmar_exclusao:
+                    cursor = conn.cursor()
+                    # Como criamos as tabelas com ON DELETE CASCADE, deletar o cliente limpa o financeiro automaticamente
+                    cursor.execute("DELETE FROM clientes WHERE id = %s;", (id_comprador,))
+                    conn.commit()
+                    cursor.close()
+                    st.success("Comprador excluído do sistema com sucesso!")
+                    st.rerun()
+                else:
+                    st.error("Por favor, marque a caixa de confirmação para poder deletar.")
+    else:
+        st.info("Nenhum comprador cadastrado no momento.")
+
+# --- ABA 5: PAINEL ANALÍTICO & RELATÓRIO EM PDF ---
+with aba5:
     st.header("Painel de Resultados Financeiros")
     
     # Consultas para geração dos blocos de métricas na tela
